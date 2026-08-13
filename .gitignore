@@ -1,0 +1,26 @@
+# Python Virtual Environment & Cache
+venv/
+backend/venv/
+**/venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Database & Environment Secrets
+*.db
+*.sqlite3
+.env
+backend/.env
+frontend/.env
+
+# Node Dependencies & Build Output
+node_modules/
+frontend/node_modules/
+**/node_modules/
+dist/
+frontend/dist/
+
+# System & IDE files
+.DS_Store
+.vscode/
+.idea/
