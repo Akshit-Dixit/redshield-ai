@@ -1,29 +1,35 @@
-from fastapi import FastAPI 
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Initialize FastAPI App Instance
+from app.core.database import create_db_and_tables
+from app.models.repository import Repository
+from app.models.test_run import TestRun
+from app.models.test_result import TestResult
+from app.api.repositories import router as repositories_router
+
 app = FastAPI(
     title="RedShield AI Engine",
-    description="AutomatedLM R Led-Teaming CI/CD Pipeline Engine",
+    description="Automated LLM Red-Teaming CI/CD Security Pipeline Engine",
     version="1.0.0"
 )
 
-# Configure Cross-Origin Resource Sharing (CORS)
-# Allows our React frontend (running on a different port) to talk to this backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows requests from any origin in dev mode
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows GET, POST, PUT, DELETE, etc.
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Health Check Endpoint
+@app.on_event("startup")
+def on_startup():
+    create_db_and_tables()
+
+# Register Routers (Naye API endpoints ko app se link kar rahe hain)
+app.include_router(repositories_router, prefix="/api/v1")
+
 @app.get("/health", tags=["Health"])
 async def health_check():
-    """
-    Health check endpoint to verify if backend server is up and running.
-    """
     return {
         "status": "healthy",
         "service": "RedShield AI Backend Engine",
