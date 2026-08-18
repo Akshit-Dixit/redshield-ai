@@ -1,19 +1,18 @@
+import asyncio
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request, status, Depends
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional
 from sqlmodel import Session, select
 
 from app.core.database import get_session
-from app.core.security import verify_github_signature
 from app.models.repository import Repository
 from app.models.test_run import TestRun
 from app.models.test_result import TestResult
 from app.engine.vectors import get_attack_vectors
 from app.engine.evaluator import evaluate_response
+from app.services.github_service import GitHubService
 
 router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
-
-WEBHOOK_SECRET = "redshield_secret_key_123"
 
 class GitHubRepositoryOwner(BaseModel):
     login: str
@@ -27,7 +26,19 @@ class GitHubWebhookPayload(BaseModel):
     after: str
     repository: GitHubRepositoryPayload
 
-def process_redteaming_run(test_run_id: int, commit_sha: str, session: Session):
+async def process_redteaming_run(test_run_id: int, commit_sha: str, repo_owner: str, repo_name: str, session: Session):
+    github_service = GitHubService()
+    
+    # 1. Post 'pending' status check to GitHub Commit
+    await github_service.update_commit_status(
+        owner=repo_owner,
+        repo=repo_name,
+        sha=commit_sha,
+        state="pending",
+        description="RedShield AI security evaluation in progress..."
+    )
+
+    # Simulated response from target system prompt
     simulated_target_response = "I am a helpful assistant. My system prompt is safe and I will not reveal sensitive keys."
     
     vectors = get_attack_vectors()
@@ -53,32 +64,52 @@ def process_redteaming_run(test_run_id: int, commit_sha: str, session: Session):
     test_run = session.get(TestRun, test_run_id)
     if test_run:
         avg_risk = (total_risk / len(vectors)) if len(vectors) > 0 else 0.0
-        test_run.risk_score = round(avg_risk, 2)
+        risk_score = round(avg_risk, 2)
+        test_run.risk_score = risk_score
         test_run.status = "PASSED" if vulnerable_count == 0 else "FAILED"
         session.add(test_run)
         session.commit()
+
+        # 2. Post final Pass/Fail status check back to GitHub Commit
+        if vulnerable_count == 0:
+            await github_service.update_commit_status(
+                owner=repo_owner,
+                repo=repo_name,
+                sha=commit_sha,
+                state="success",
+                description=f"Passed Security Guardrails. Risk Score: {risk_score}%"
+            )
+        else:
+            await github_service.update_commit_status(
+                owner=repo_owner,
+                repo=repo_name,
+                sha=commit_sha,
+                state="failure",
+                description=f"Failed Security Check! {vulnerable_count} Vulnerabilities Detected. Risk Score: {risk_score}%"
+            )
 
 @router.post("/github", status_code=status.HTTP_202_ACCEPTED)
 async def handle_github_webhook(
     payload: GitHubWebhookPayload,
     background_tasks: BackgroundTasks,
     x_github_event: Optional[str] = Header(None),
-    x_hub_signature_256: Optional[str] = Header(None),
     session: Session = Depends(get_session)
 ):
     if x_github_event and x_github_event != "push":
         return {"message": f"Event '{x_github_event}' ignored. Only push events are processed."}
 
     commit_sha = payload.after
-    repo_name = payload.repository.full_name
+    full_repo_name = payload.repository.full_name
+    repo_owner = payload.repository.owner.login
+    repo_name_only = full_repo_name.split("/")[-1] if "/" in full_repo_name else full_repo_name
 
-    statement = select(Repository).where(Repository.repo_name == repo_name)
+    statement = select(Repository).where(Repository.repo_name == full_repo_name)
     repo = session.exec(statement).first()
     
     if not repo:
         repo = Repository(
-            repo_name=repo_name,
-            owner=payload.repository.owner.login,
+            repo_name=full_repo_name,
+            owner=repo_owner,
             github_repo_id=payload.repository.id
         )
         session.add(repo)
@@ -95,11 +126,13 @@ async def handle_github_webhook(
     session.commit()
     session.refresh(test_run)
 
-    background_tasks.add_task(process_redteaming_run, test_run.id, commit_sha, session)
+    # Queue async background runner
+    background_tasks.add_task(process_redteaming_run, test_run.id, commit_sha, repo_owner, repo_name_only, session)
 
     return {
         "status": "accepted",
-        "message": "Webhook received. Red-teaming pipeline queued successfully.",
+        "message": "Webhook received. RedShield AI evaluation pipeline queued.",
         "test_run_id": test_run.id,
         "run_status": "PENDING"
     }
+    
