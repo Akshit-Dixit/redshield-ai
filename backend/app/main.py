@@ -9,6 +9,7 @@ from app.models.test_result import TestResult
 from app.api.repositories import router as repositories_router
 from app.api.pipeline import router as pipeline_router
 from app.api.webhooks import router as webhooks_router
+from app.api.runs import router as runs_router
 
 app = FastAPI(
     title="RedShield AI Engine",
@@ -32,6 +33,7 @@ def on_startup():
 app.include_router(repositories_router, prefix="/api/v1")
 app.include_router(pipeline_router, prefix="/api/v1")
 app.include_router(webhooks_router, prefix="/api/v1")
+app.include_router(runs_router, prefix="/api/v1")
 
 @app.get("/health", tags=["Health"])
 async def health_check():
@@ -39,4 +41,4 @@ async def health_check():
         "status": "healthy",
         "service": "RedShield AI Backend Engine",
         "version": "1.0.0"
-    }   
+    }
