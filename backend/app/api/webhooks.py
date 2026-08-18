@@ -46,7 +46,7 @@ async def process_redteaming_run(test_run_id: int, commit_sha: str, repo_owner: 
     vulnerable_count = 0
 
     for vector in vectors:
-        eval_res = evaluate_response(vector, simulated_target_response)
+        eval_res = await evaluate_response(vector, simulated_target_response)
         if eval_res["is_vulnerable"]:
             vulnerable_count += 1
             total_risk += eval_res["risk_score"]
