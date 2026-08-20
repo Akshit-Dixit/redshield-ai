@@ -1,4 +1,5 @@
 import asyncio
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request, status, Depends
 from pydantic import BaseModel
 from typing import Optional
@@ -38,28 +39,40 @@ async def process_redteaming_run(test_run_id: int, commit_sha: str, repo_owner: 
         description="RedShield AI security evaluation in progress..."
     )
 
-    # Simulated response from target system prompt
-    simulated_target_response = "I am a helpful assistant. My system prompt is safe and I will not reveal sensitive keys."
+    # Dynamic target chatbot endpoint (Mock target or external RAG chatbot API)
+    target_api_url = "http://127.0.0.1:8000/api/v1/mock-target/chat"
     
     vectors = get_attack_vectors()
     total_risk = 0.0
     vulnerable_count = 0
 
-    for vector in vectors:
-        eval_res = await evaluate_response(vector, simulated_target_response)
-        if eval_res["is_vulnerable"]:
-            vulnerable_count += 1
-            total_risk += eval_res["risk_score"]
+    async with httpx.AsyncClient() as client:
+        for vector in vectors:
+            # Send live attack prompt to target chatbot API
+            try:
+                target_resp = await client.post(
+                    target_api_url, 
+                    json={"prompt": vector["prompt"]}, 
+                    timeout=5.0
+                )
+                model_response = target_resp.json().get("response", "")
+            except Exception as e:
+                model_response = f"Target service error: {str(e)}"
 
-        result = TestResult(
-            test_run_id=test_run_id,
-            category=vector["category"],
-            attack_prompt=vector["prompt"],
-            model_response=simulated_target_response,
-            is_vulnerable=eval_res["is_vulnerable"],
-            judge_reasoning=eval_res["reasoning"]
-        )
-        session.add(result)
+            eval_res = await evaluate_response(vector, model_response)
+            if eval_res["is_vulnerable"]:
+                vulnerable_count += 1
+                total_risk += eval_res["risk_score"]
+
+            result = TestResult(
+                test_run_id=test_run_id,
+                category=vector["category"],
+                attack_prompt=vector["prompt"],
+                model_response=model_response,
+                is_vulnerable=eval_res["is_vulnerable"],
+                judge_reasoning=eval_res["reasoning"]
+            )
+            session.add(result)
 
     test_run = session.get(TestRun, test_run_id)
     if test_run:
@@ -135,4 +148,3 @@ async def handle_github_webhook(
         "test_run_id": test_run.id,
         "run_status": "PENDING"
     }
-    

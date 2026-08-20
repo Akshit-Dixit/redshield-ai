@@ -2,14 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import create_db_and_tables
-from app.models.repository import Repository
-from app.models.test_run import TestRun
-from app.models.test_result import TestResult
-
 from app.api.repositories import router as repositories_router
 from app.api.pipeline import router as pipeline_router
 from app.api.webhooks import router as webhooks_router
 from app.api.runs import router as runs_router
+from app.engine.mock_target import router as mock_target_router
 
 app = FastAPI(
     title="RedShield AI Engine",
@@ -34,6 +31,7 @@ app.include_router(repositories_router, prefix="/api/v1")
 app.include_router(pipeline_router, prefix="/api/v1")
 app.include_router(webhooks_router, prefix="/api/v1")
 app.include_router(runs_router, prefix="/api/v1")
+app.include_router(mock_target_router, prefix="/api/v1")
 
 @app.get("/health", tags=["Health"])
 async def health_check():
